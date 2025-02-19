@@ -104,26 +104,23 @@ def create_layout(signals_data, path_to_file):
                         dropdown={
                             "i_conf": {
                                 "options": [
-                                    {"label": "Unsure", "value": "Unsure"},
-                                    {"label": "Low", "value": "Low"},
-                                    {"label": "Medium", "value": "Medium"},
-                                    {"label": "High", "value": "High"}
+                                    {"label": "Not Sure", "value": "Not Sure"},
+                                    {"label": "Somewhat Sure", "value": "Somewhat Sure"},
+                                    {"label": "Quite Sure", "value": "Quite Sure"}
                                 ]
                             },
                             "j_conf": {
                                 "options": [
-                                    {"label": "Unsure", "value": "Unsure"},
-                                    {"label": "Low", "value": "Low"},
-                                    {"label": "Medium", "value": "Medium"},
-                                    {"label": "High", "value": "High"}
+                                    {"label": "Not Sure", "value": "Not Sure"},
+                                    {"label": "Somewhat Sure", "value": "Somewhat Sure"},
+                                    {"label": "Quite Sure", "value": "Quite Sure"}
                                 ]
                             },
                             "k_conf": {
                                 "options": [
-                                    {"label": "Unsure", "value": "Unsure"},
-                                    {"label": "Low", "value": "Low"},
-                                    {"label": "Medium", "value": "Medium"},
-                                    {"label": "High", "value": "High"}
+                                    {"label": "Not Sure", "value": "Not Sure"},
+                                    {"label": "Somewhat Sure", "value": "Somewhat Sure"},
+                                    {"label": "Quite Sure", "value": "Quite Sure"}
                                 ]
                             }
                         },
