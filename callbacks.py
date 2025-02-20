@@ -30,20 +30,35 @@ def register_callbacks(app, signals_data, duration):
         }
 
     #
-    # 2) Plot with final + partial annotations, and preserve zoom using uirevision
+    # 2) Plot with final + partial annotations, dynamic filter, ECG mask, etc.
     #
     @app.callback(
-    Output("main-plot", "figure"),
-    Input("signal-dropdown", "value"),
-    Input("table-store", "data"),
-    Input("annotation-store", "data")
-)
-    def update_plot(selected_value, table_data, annot_state):
+        Output("main-plot", "figure"),
+        [
+            Input("signal-dropdown", "value"),
+            Input("table-store", "data"),
+            Input("annotation-store", "data"),
+
+            # New dynamic filter inputs
+            Input("filter-order-input", "value"),
+            Input("lowcut-input", "value"),
+            Input("highcut-input", "value")
+        ]
+    )
+    def update_plot(
+        selected_value,
+        table_data,
+        annot_state,
+        filter_order,
+        lowcut,
+        highcut
+    ):
         """
         Plots the selected signal, plus:
-        - A masked ECG line (where mask==1 => line at y=0, else breaks).
-        - A filtered helper trace.
-        - Final and partial annotation markers.
+          - An ECG mask line if present
+          - A dynamically filtered "helper" trace, using filter_order/lowcut/highcut
+          - The raw signal
+          - Final and partial annotation markers
         """
         fig = go.Figure()
 
@@ -56,31 +71,25 @@ def register_callbacks(app, signals_data, duration):
         ts = entry["ts"]
         signal_values = entry["signals"]
         ecg = entry.get("ecg", None)
+        mask_arr = entry.get("mask", None)
         num_samples = len(signal_values)
 
-        # 2) Create the x-axis once, for everything
+        # 2) Create the x-axis
         start_dt = datetime.fromtimestamp(ts)
         step_sec = duration / (num_samples - 1) if num_samples > 1 else 1
         x_axis = [start_dt + timedelta(seconds=i * step_sec) for i in range(num_samples)]
 
-        # 3) If there's a mask, build a line trace at y=0 where mask==1
-            # (A) Add ECG Mask trace if present
-        mask_arr = entry.get("mask", None)
+        # 3) If there's a mask, build vertical lines at each index where mask==1
         if mask_arr is not None and len(mask_arr) == num_samples:
-            # Use the y-range of the raw signal to plot vertical lines.
             y_min = min(signal_values)
             y_max = max(signal_values)
             x_mask = []
             y_mask = []
-            # For each sample index, if mask==1, add a vertical line segment
             for i, val in enumerate(mask_arr):
                 if val == 1:
-                    # For a vertical line, add two points with the same x value and y_min and y_max,
-                    # then add None to break the line from the next segment.
                     x_mask.extend([x_axis[i], x_axis[i], None])
                     y_mask.extend([y_min, y_max, None])
-            # Only add the trace if there is at least one valid point.
-            if any(point is not None for point in x_mask):
+            if any(pt is not None for pt in x_mask):
                 fig.add_trace(
                     go.Scatter(
                         x=x_mask,
@@ -94,7 +103,7 @@ def register_callbacks(app, signals_data, duration):
                     )
                 )
 
-        # 4) Add the raw signal
+        # 4) Raw signal trace
         fig.add_trace(
             go.Scatter(
                 x=x_axis,
@@ -106,26 +115,35 @@ def register_callbacks(app, signals_data, duration):
             )
         )
 
-        # 5) Filter the signal
+        # 5) Filtered signal (dynamic)
+        # The user sets filter_order, lowcut, highcut; we re-run sos_filter:
+        if not filter_order:
+            filter_order = 2
+        if not lowcut:
+            lowcut = 1.5
+        if not highcut:
+            highcut = 10.0
+
         filtered_signal = sos_filter(
             signal_values,
-            order=3,
-            frequency_list=[1.5, 10.0],
+            order=filter_order,
+            frequency_list=[lowcut, highcut],
             sample_rate=250
         )
-        # Add the filtered helper trace
         fig.add_trace(
             go.Scatter(
                 x=x_axis,
                 y=filtered_signal,
                 mode="lines",
-                name="Filtered Helper",
-                line=dict(color="red", width=1.75),
-                opacity=0.5,
+                name="Filtered Signal",
+                line=dict(color="red", width=2),
+                opacity=0.66,
                 hoverinfo="skip",
                 showlegend=True
             )
         )
+
+        # 6) If there's an 'ecg' array, render it
         if ecg is not None:
             fig.add_trace(
                 go.Scatter(
@@ -133,14 +151,14 @@ def register_callbacks(app, signals_data, duration):
                     y=ecg,
                     mode="lines",
                     name="ECG",
-                    line=dict(color="green", width=1.75),
+                    line=dict(color="green", width=2),
                     opacity=0.33,
                     hoverinfo="skip",
                     showlegend=True
                 )
             )
 
-        # 6) Plot final annotation markers from table-store
+        # 7) Plot final annotation markers from table-store
         if table_data and str(selected_value) in table_data:
             rows = table_data[str(selected_value)]
             i_x, i_y = [], []
@@ -190,7 +208,7 @@ def register_callbacks(app, signals_data, duration):
                     marker_size=10, name="k markers"
                 ))
 
-        # 7) Render partial markers from annotation-store
+        # 8) Render partial markers from annotation-store
         if annot_state:
             i_samp = annot_state.get("i_samp")
             i_amp = annot_state.get("i_amp")
@@ -230,16 +248,16 @@ def register_callbacks(app, signals_data, duration):
                     hoverinfo="skip"
                 ))
 
-        # 8) Final layout
+        # 9) Final layout
         fig.update_layout(
-            title=f"Signal Starting {start_dt} (Duration={duration}s)",
+            title=f"Signal Starting {start_dt} (Order={filter_order}, "
+                  f"{lowcut}-{highcut}Hz, Duration={duration}s)",
             xaxis_title="Time",
             yaxis_title="Amplitude",
             uirevision="signalPlot"
         )
 
         return fig
-
 
     def clamp_index(v, low, hi):
         return max(low, min(v, hi))
@@ -429,6 +447,80 @@ def register_callbacks(app, signals_data, duration):
         Input("exit-btn", "n_clicks"),
         prevent_initial_call=True
     )
+
+    @app.callback(
+    Output("history-store", "data", allow_duplicate=True),
+    Output("table-store", "data", allow_duplicate=True),
+    Output("annotation-store", "data", allow_duplicate=True),
+    Input("table-store", "data"),               # or annotation-store, or both
+    Input("annotation-store", "data"),
+    Input("undo-btn", "n_clicks"),
+    Input("redo-btn", "n_clicks"),
+    State("history-store", "data"),
+    prevent_initial_call=True
+)
+    def manage_history(table_data, annot_data, undo_click, redo_click, history):
+        if history is None:
+            history = {
+                "past": [],
+                "present": {"table": {}, "annot": {}},
+                "future": []
+            }
+
+        past = history["past"]
+        present = history["present"]
+        future = history["future"]
+
+        def return_no_change():
+            # Ensure 'table' and 'annot' exist in present
+            if "table" not in present:
+                present["table"] = {}
+            if "annot" not in present:
+                present["annot"] = {}
+            return history, present["table"], present["annot"]
+
+        triggered_id = ctx.triggered_id
+
+        if triggered_id == "undo-btn":
+            if len(past) > 0:
+                future.append(present)
+                new_present = past.pop()
+                return {
+                    "past": past,
+                    "present": new_present,
+                    "future": future
+                }, new_present["table"], new_present["annot"]
+            else:
+                return return_no_change()
+
+        elif triggered_id == "redo-btn":
+            if len(future) > 0:
+                past.append(present)
+                new_present = future.pop()
+                return {
+                    "past": past,
+                    "present": new_present,
+                    "future": future
+                }, new_present["table"], new_present["annot"]
+            else:
+                return return_no_change()
+
+        else:
+            # some new user action updating table_data / annot_data
+            # if it differs from present, push old present to past, set new present
+            if table_data != present.get("table") or annot_data != present.get("annot"):
+                past.append(present)
+                new_present = {"table": table_data, "annot": annot_data}
+                return {
+                    "past": past,
+                    "present": new_present,
+                    "future": []
+                }, table_data, annot_data
+
+            # otherwise no real change
+            return return_no_change()
+
+
 
     @app.callback(
     Output("table-store", "data", allow_duplicate=True),

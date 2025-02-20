@@ -3,6 +3,7 @@ import argparse
 import pandas as pd
 import dash
 import warnings
+import dash_bootstrap_components as dbc
 
 from layout import create_layout
 from callbacks import register_callbacks
@@ -75,15 +76,14 @@ def main():
     parser = argparse.ArgumentParser(description="Run the Signal Annotator")
     parser.add_argument("duration", type=int, help="Duration in seconds for signal spread")
     parser.add_argument("parquet_path", type=str, help="Path to the parquet file")
-    parser.add_argument("-ecg", action="store_true", help="Include ECG data if available")
 
     args = parser.parse_args()
 
     # Parse signals from the parquet file
-    signals_data = parse_parquet_file(args.parquet_path, ecg_flag=args.ecg)
+    signals_data = parse_parquet_file(args.parquet_path)
 
     # Initialize Dash app
-    app = dash.Dash(__name__, suppress_callback_exceptions=True)
+    app = dash.Dash(__name__, suppress_callback_exceptions=True, external_stylesheets=[dbc.themes.SLATE])
     app.title = "Signal Annotator"
 
     # Set up layout with parsed data
