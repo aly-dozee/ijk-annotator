@@ -29,14 +29,13 @@ def create_layout(signals_data, path_to_file):
                     "borderBottom": "1px solid #ccc"
                 },
                 children=[
-                    html.Button("Undo", id="undo-btn", n_clicks=0),
-                    html.Button("Redo", id="redo-btn", n_clicks=0),
+                    html.Button("Restart", id="restart-btn", n_clicks=0),
                     dcc.Dropdown(
                         id="signal-dropdown",
                         options=dropdown_options,
                         value=None,
                         placeholder="Select a signal",
-                        style={"width": "250px"}
+                        style={"width": "375px"}
                     ),
                     html.Button("Done", id="done-btn", n_clicks=0),
                     html.Button("Exit", id="exit-btn", n_clicks=0)
@@ -58,27 +57,58 @@ def create_layout(signals_data, path_to_file):
                     dcc.Store(id="table-store", data={}),
                     dcc.Store(id="done-signals-store", data=[]),
                     dcc.Store(
-                        id="history-store",
-                        data={
-                            "past": [],
-                            "present": {
-                                "table": {},
-                                "annot": {}
-                            },
-                            "future": []
-                        }
-                    ),
-                    dcc.Store(
                         id="annotation-store",
                         data={
-                            "activeLabel": None,  # which label user is placing next: "i"/"j"/"k"
-                            "i_samp": None, "i_amp": None,
+                            "activeLabel": None,  # which label user is placing next: i/j/k
+                            # "i_samp": None, "i_amp": None,
                             "j_samp": None, "j_amp": None,
-                            "k_samp": None, "k_amp": None,
+                            # "k_samp": None, "k_amp": None,
                             "preview_samp": None, "preview_amp": None,
                             "modeActive": False,
                         }
                     ),
+                    dcc.Store(id="peakInProgress", data={"popUpOpen": False}),
+                ]
+            ),
+
+            # Overlay that covers the entire screen
+            html.Div(
+                id="modal-overlay",
+                style={
+                    "display": "none",             # hidden by default
+                    "position": "fixed",
+                    "top": 0, "left": 0,
+                    "width": "100%", "height": "100%",
+                    "backgroundColor": "rgba(0, 0, 0, 0.5)", # semi-transparent background
+                    "zIndex": 9998                  # behind the modal content
+                },
+                children=[
+                    # The "modal" content inside the overlay
+                    html.Div(
+                        id="confidence-modal",
+                        style={
+                            "position": "absolute",
+                            "top": "50%", "left": "50%",
+                            "transform": "translate(-50%, -50%)",
+                            "backgroundColor": "white",
+                            "padding": "20px",
+                            "border": "2px solid #ccc",
+                            "zIndex": 9999,  # above the overlay background
+                        },
+                        children=[
+                            html.H3("Select Confidence for this Peak"),
+                            dcc.Dropdown(
+                                id="confidence-dropdown",
+                                options=[
+                                    {"label": "Unsure",         "value": "Unsure"},
+                                    {"label": "Somewhat Sure",  "value": "Somewhat Sure"},
+                                    {"label": "Sure",           "value": "Sure"}
+                                ],
+                                placeholder="Pick confidence..."
+                            ),
+                            html.Button("Done", id="confidence-done-btn", n_clicks=0, style={"marginTop": "10px"}),
+                        ]
+                    )
                 ]
             ),
 
@@ -90,10 +120,7 @@ def create_layout(signals_data, path_to_file):
                     html.Div(
                         style={"display": "flex", "flexDirection": "row", "gap": "10px", "marginBottom": "10px"},
                         children=[
-                            html.Button("i", id="i-btn", n_clicks=0),
-                            html.Button("j", id="j-btn", n_clicks=0),
-                            html.Button("k", id="k-btn", n_clicks=0),
-                            html.Button("Add Complex", id="add-complex-btn", n_clicks=0),
+                            html.Button("Annotation Mode OFF", id="add-complex-btn", n_clicks=0),
                         ]
                     ),
 
@@ -115,7 +142,7 @@ def create_layout(signals_data, path_to_file):
                             dcc.Input(
                                 id="lowcut-input",
                                 type="number",
-                                value=1.5,      # default
+                                value=5.0,      # default
                                 step=0.5,
                                 style={"width": "60px"}
                             ),
@@ -123,7 +150,7 @@ def create_layout(signals_data, path_to_file):
                             dcc.Input(
                                 id="highcut-input",
                                 type="number",
-                                value=10.0,     # default
+                                value=15.0,     # default
                                 step=0.5,
                                 style={"width": "60px"}
                             ),
@@ -134,47 +161,40 @@ def create_layout(signals_data, path_to_file):
                     dash_table.DataTable(
                         id="complex-table",
                         columns=[
-                            {"name": "i", "id": "i", "type": "numeric"},
-                            {"name": "i_conf", "id": "i_conf", "presentation": "dropdown"},
-                            {"name": "j", "id": "j", "type": "numeric"},
-                            {"name": "j_conf", "id": "j_conf", "presentation": "dropdown"},
-                            {"name": "k", "id": "k", "type": "numeric"},
-                            {"name": "k_conf", "id": "k_conf", "presentation": "dropdown"},
-                            {"name": "height", "id": "height", "type": "numeric"},
-                            {"name": "width", "id": "width", "type": "numeric"},
+                            {
+                                "name": "x_j (timestamp)",
+                                "id": "j_samp",
+                                "type": "text"
+                            },
+                            {
+                                "name": "x_j (index)",
+                                "id": "idx_int",
+                                "type": "numeric"
+                            },
+                            {
+                                "name": "y_j",
+                                "id": "j_amp",
+                                "type": "numeric"
+                            },
+                            {
+                                "name": "j_conf",
+                                "id": "j_conf",
+                                "type": "text"
+                            }
                         ],
                         data=[],
                         editable=True,
                         row_deletable=True,
                         dropdown={
-                            "i_conf": {
-                                "options": [
-                                    {"label": "Unsure", "value": "Unsure"},
-                                    {"label": "Low", "value": "Low"},
-                                    {"label": "Medium", "value": "Medium"},
-                                    {"label": "High", "value": "High"}
-                                ]
-                            },
                             "j_conf": {
                                 "options": [
-                                    {"label": "Unsure", "value": "Unsure"},
-                                    {"label": "Low", "value": "Low"},
-                                    {"label": "Medium", "value": "Medium"},
-                                    {"label": "High", "value": "High"}
-                                ]
-                            },
-                            "k_conf": {
-                                "options": [
-                                    {"label": "Unsure", "value": "Unsure"},
-                                    {"label": "Low", "value": "Low"},
-                                    {"label": "Medium", "value": "Medium"},
-                                    {"label": "High", "value": "High"}
-                                ]
+                                    {"label": "Unsure",         "value": "Unsure"},
+                                    {"label": "Somewhat Sure",  "value": "Somewhat Sure"},
+                                    {"label": "Sure",           "value": "Sure"}
+                                ],
+                                "clearable": True
                             }
-                        },
-                        style_table={"width": "100%", "overflowX": "auto"},
-                        style_header={"backgroundColor": "#f2f2f2", "fontWeight": "bold"},
-                        style_cell={"padding": "8px", "textAlign": "center"}
+                        }
                     ),
 
                     # Export controls
